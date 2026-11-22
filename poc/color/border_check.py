@@ -1,6 +1,6 @@
 import sys, numpy as np, cv2
 from PIL import Image
-sys.path.insert(0, sys.argv[1])  # usage: border_check.py <poc/colour dir> <results dir>
+sys.path.insert(0, sys.argv[1])  # usage: border_check.py <poc/color dir> <results dir>
 from common import signed_distance
 RES = sys.argv[2]
 def rough_from(prefix, kind):

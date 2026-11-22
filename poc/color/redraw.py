@@ -1,5 +1,5 @@
 """Does the plateau stay even when the edit redraws more? Residual after the global
-tone-curve grade, mapped over the frame, plus the colour scores with a rough mask.
+tone-curve grade, mapped over the frame, plus the color scores with a rough mask.
 
 usage: redraw.py <results dir> <out dir> <prefix>:<rough kind> ...
   rough kind: ellipse:x0,y0,x1,y1 (an ellipse around change inside that box, edit px)
@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 from common import srgb_to_oklab, oklab_to_srgb, signed_distance
-import colour_match as cm
+import color_match as cm
 
 RES, OUT = sys.argv[1], sys.argv[2]
 sys.path.insert(0, __file__.rsplit("/poc/", 1)[0])
@@ -91,7 +91,7 @@ for spec in sys.argv[3:]:
     print("  ring profile of that residual from the rough mask edge (px: value):",
           " ".join(f"{c:+d}:{v:+.3f}" for c, v in zip(edges[:-1] + 16, ring) if np.isfinite(v)))
 
-    # colour scores
+    # color scores
     ch_full = cv2.dilate(change, np.ones((9, 9), np.uint8)) > 0
     seam = (alpha > 0.05) & (alpha < 0.95) & ~ch_full
     inside = (alpha >= 0.95) & ~ch_full

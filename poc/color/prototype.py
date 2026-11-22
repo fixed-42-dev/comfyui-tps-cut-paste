@@ -10,7 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from common import srgb_to_oklab, oklab_to_srgb, load_pair
-import colour_match as cm
+import color_match as cm
 
 RES, OUT = sys.argv[1], sys.argv[2]
 PREFIX = sys.argv[3] if len(sys.argv) > 3 else "fin_mona"
@@ -57,7 +57,7 @@ def score(name, P):
 variants = {}
 variants["none"] = E
 
-# baseline: what a default colour match does - Reinhard on the cut area (mask box x2)
+# baseline: what a default color match does - Reinhard on the cut area (mask box x2)
 ys, xs = np.nonzero(rough)
 cy, cx, hy, hx = (ys.min() + ys.max()) // 2, (xs.min() + xs.max()) // 2, int(np.ptp(ys)), int(np.ptp(xs))
 box = (slice(max(0, cy - hy), min(H, cy + hy)), slice(max(0, cx - hx), min(W, cx + hx)))

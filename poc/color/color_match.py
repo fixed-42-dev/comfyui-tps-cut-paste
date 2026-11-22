@@ -1,6 +1,6 @@
-"""Colour match after an edit model: prototype of stages 1-3.
+"""Color match after an edit model: prototype of stages 1-3.
 
-1. trust   - which pixels the edit left alone: colour z and round-trip z against
+1. trust   - which pixels the edit left alone: color z and round-trip z against
              2D plateau/floor maps, times flatness. Also gives a change mask.
 2. grade   - the edit's overall grade, fitted on trusted pixels as an offset per
              tone in Oklab (as a function of the edit's lightness), held flat
@@ -244,7 +244,7 @@ def texture_gains(original, processed, weight, levels=5, local=True, sigma=24.0,
 
 def apply_texture(processed, gains, profile_map=None):
     """Scale the processed frame's detail bands; profile_map (H, W) 0-1 fades the
-    change (1 = full gain, 0 = untouched), as the edge profile does for colour."""
+    change (1 = full gain, 0 = untouched), as the edge profile does for color."""
     lab = srgb_to_oklab(processed)
     bands, base = lap_pyr(lab[..., 0], len(gains))
     out = []

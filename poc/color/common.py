@@ -1,8 +1,8 @@
-"""Shared pieces for the colour-match proof of concept (not part of the node pack)."""
+"""Shared pieces for the color-match proof of concept (not part of the node pack)."""
 import numpy as np
 import cv2
 
-# ------------------------------------------------ colour spaces
+# ------------------------------------------------ color spaces
 
 def srgb_to_linear(x):
     x = np.clip(x, 0.0, 1.0)

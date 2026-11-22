@@ -10,7 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from common import srgb_to_oklab, load_pair
-import colour_match as cm
+import color_match as cm
 
 RES, OUT = sys.argv[1], sys.argv[2]
 PREFIX = sys.argv[3] if len(sys.argv) > 3 else "fin_mona"
@@ -25,13 +25,13 @@ from tps_cut_paste.flow import Flow
 from tps_cut_paste import seam_align
 tr = cm.trust(O, E, seam_align.raft_flows(Flow()))
 
-# colour first (stages 2-3), as decided
+# color first (stages 2-3), as decided
 curve, _ = cm.fit_grade(tr["o"], tr["p"], tr["w"], mode="tone")
 G = cm.apply_grade(E, curve)
 f, _ = cm.edge_field(O, G, alpha, tr, band=48, kind="smooth", width=64)
 G = cm.apply_field(G, f)
 
-# texture trust: like colour trust but without the flatness term (texture lives on edges)
+# texture trust: like color trust but without the flatness term (texture lives on edges)
 w_tex = cm._soft(tr["z_col"]) * cm._soft(tr["z_rt"]) * (1 - tr["change"])
 w_tex = cv2.resize(w_tex.astype(np.float32), (W, H), interpolation=cv2.INTER_LINEAR)
 maps_g, glob = cm.texture_gains(O, G, w_tex, local=False)
@@ -43,11 +43,11 @@ Tl = cm.apply_texture(G, maps_l)
 
 variants = {
     "raw edit, plain alpha": (E, "alpha"),
-    "colour, plain alpha": (G, "alpha"),
-    "colour + global gain, alpha": (Tg, "alpha"),
-    "colour + local gain, alpha": (Tl, "alpha"),
-    "colour + local gain, multiband": (Tl, "multiband"),
-    "colour + local gain, energy": (Tl, "energy"),
+    "color, plain alpha": (G, "alpha"),
+    "color + global gain, alpha": (Tg, "alpha"),
+    "color + local gain, alpha": (Tl, "alpha"),
+    "color + local gain, multiband": (Tl, "multiband"),
+    "color + local gain, energy": (Tl, "energy"),
 }
 
 # regions
@@ -97,14 +97,14 @@ for i, t in enumerate(["fine detail (1-2 px)", "mid detail (4-12 px)"]):
 ax[1].legend(fontsize=8)
 plt.tight_layout(); plt.savefig(OUT + f"/tex_{PREFIX}_seam.png", dpi=80); plt.close()
 
-# zoomed crop across the seam: original | colour, alpha | local gain, alpha | local gain, energy
+# zoomed crop across the seam: original | color, alpha | local gain, alpha | local gain, energy
 ring = (alpha > 0.3) & (alpha < 0.7) & ~changed & (blur(Lo, 8.0) > 0.45)   # a bright, textured stretch of seam
 score_map = np.where(ring, blur(rms_o[0], 16.0), 0)
 cy, cx = np.unravel_index(np.argmax(score_map), score_map.shape)
 s = 150
 y0, x0 = max(0, cy - s), max(0, cx - s)
 box = (slice(y0, min(H, cy + s)), slice(x0, min(W, cx + s)))
-names = ["colour, plain alpha", "colour + local gain, alpha", "colour + local gain, energy"]
+names = ["color, plain alpha", "color + local gain, alpha", "color + local gain, energy"]
 comps = [cm.blend(O, variants[k][0], alpha, variants[k][1]) for k in names]
 fig, ax = plt.subplots(2, 4, figsize=(16, 8.4))
 ax[0, 0].imshow(O[box]); ax[0, 0].set_title("original", fontsize=10)

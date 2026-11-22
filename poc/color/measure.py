@@ -160,7 +160,7 @@ for it in range(4):
     print(f"  iteration {it}: z>4 covers {(z > 4).mean()*100:.2f}% of frame; "
           f"of the bird {(z > 4)[chg_q].mean()*100:.0f}%, outside it {(z > 4)[unch_q].mean()*100:.2f}%")
 fixed = np.abs(cv2.resize(d, q, interpolation=cv2.INTER_AREA)).mean(-1) > 0.08
-print(f"  fixed colour threshold 0.08: of the bird {fixed[chg_q].mean()*100:.0f}%, outside it {fixed[unch_q].mean()*100:.2f}%")
+print(f"  fixed color threshold 0.08: of the bird {fixed[chg_q].mean()*100:.0f}%, outside it {fixed[unch_q].mean()*100:.2f}%")
 print(f"  floor (Oklab L) over the frame: p5 {np.percentile(floor[..., 0], 5):.4f}, median {np.median(floor[..., 0]):.4f}, "
       f"p95 {np.percentile(floor[..., 0], 95):.4f}  (ratio p95/p5 {np.percentile(floor[..., 0], 95) / np.percentile(floor[..., 0], 5):.1f})")
 print(f"  plateau (Oklab L): p5 {np.percentile(plateau[..., 0], 5):+.4f}, median {np.median(plateau[..., 0]):+.4f}, p95 {np.percentile(plateau[..., 0], 95):+.4f}")
@@ -185,7 +185,7 @@ print(f"  round-trip error floor: p5 {np.percentile(ef, 5):.3f}, median {np.medi
 fig, ax = plt.subplots(1, 5, figsize=(20, 6))
 for a_, im, t, kw in [(ax[0], plateau[..., 0], "plateau map, Oklab L", dict(cmap="coolwarm", vmin=-0.04, vmax=0.04)),
                       (ax[1], floor[..., 0], "floor map, Oklab L", dict(cmap="magma", vmin=0, vmax=0.05)),
-                      (ax[2], np.clip(z, 0, 8), "colour z (floors above plateau)", dict(cmap="inferno", vmin=0, vmax=8)),
+                      (ax[2], np.clip(z, 0, 8), "color z (floors above plateau)", dict(cmap="inferno", vmin=0, vmax=8)),
                       (ax[3], np.clip(ez, 0, 8), "round-trip z", dict(cmap="inferno", vmin=0, vmax=8)),
                       (ax[4], fixed.astype(float), "fixed threshold 0.08", dict(cmap="gray"))]:
     m = a_.imshow(im, **kw); a_.set_title(t); a_.axis("off"); plt.colorbar(m, ax=a_, fraction=0.04)
