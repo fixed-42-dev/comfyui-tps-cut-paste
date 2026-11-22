@@ -18,6 +18,7 @@ painted mask, and undo it; leave the object and its effect on its surroundings.
 | `texture.py` | Stage 4: band gains and blends, seam energy profile |
 | `redraw.py` | Plateau evenness and scores on redraw-heavy edits, with the painted mask as prior |
 | `border_check.py` | How a mask touching the image border shortens the band |
+| `measure_view.py` | The measurement preview TPS Paste would show: where it measured, plateau before and after, the grade curve, band completeness, change outside the mask, confidence |
 
 Inputs are aligned pairs written by `finish_test.py` (outside this repo):
 `<prefix>_orig_editframe.png`, `<prefix>_aligned.npy`, `<prefix>_soft.npy`, plus
