@@ -96,7 +96,10 @@ class TPSPaste(io.ComfyNode):
                 "mask, with everything outside the mask left as it was. align lines the "
                 "edited cut up with the original first (RAFT optical flow and a "
                 "thin-plate-spline warp), so the old and new edges don't both show "
-                "through the feather."),
+                "through the feather. color and texture undo what the edit model changed "
+                "everywhere (an overall grade, smoothed or sharpened detail), measured only "
+                "where the edit left the picture alone, so the new object keeps its own "
+                "look and the seam disappears."),
             search_aliases=["stitch", "cut and paste", "detailer", "inpaint stitch",
                             "crop and stitch"],
             inputs=[
@@ -119,28 +122,70 @@ class TPSPaste(io.ComfyNode):
                 io.Int.Input("seam_band", default=48, min=0, max=512,
                              tooltip="Cut px inside the mask core that also get aligned "
                                      "(seam mode)."),
+                io.Combo.Input("color", options=["grade + edge", "grade", "edge", "off"],
+                               default="grade + edge",
+                               tooltip="Undo the edit's overall color change. grade: an "
+                                       "Oklab correction per tone, measured on pixels the "
+                                       "edit left alone, outside-in from the mask. edge: "
+                                       "match what is left at the mask edge and fade it "
+                                       "inward; it carries the correction when the edit "
+                                       "relit the scene unevenly. edge alone keeps the "
+                                       "edit's own grade inside."),
+                io.Float.Input("grade_strength", default=1.0, min=0.0, max=1.0, step=0.05,
+                               tooltip="How much of the measured grade to undo. It is "
+                                       "also scaled down when the measurement is unsure "
+                                       "(see measure_view)."),
+                io.Combo.Input("edge_profile", options=["smooth", "linear", "decay", "entire"],
+                               default="smooth",
+                               tooltip="How the edge correction fades inward from the mask "
+                                       "edge over edge_width. entire: the whole pasted "
+                                       "area."),
+                io.Int.Input("edge_width", default=128, min=8, max=2048,
+                             tooltip="Cut px over which the edge correction fades inward."),
+                io.Combo.Input("texture", options=["match", "off"], default="match",
+                               tooltip="Match the edit's detail energy per frequency band "
+                                       "to the original's (edit models smooth fine texture "
+                                       "and boost mid-scale contrast)."),
+                io.Combo.Input("feather_detail", options=["keep", "plain"], default="keep",
+                               tooltip="keep: in the feather, keep the detail energy of "
+                                       "both sides. A plain mix of two different textures "
+                                       "partly cancels and leaves a soft halo along the "
+                                       "seam."),
                 io.Mask.Input("blend_mask", optional=True,
                               tooltip="Cut-space mask overriding the stored one."),
             ],
             outputs=[
                 io.Image.Output("image"),
                 io.Mask.Output("blend_mask", tooltip="Blend strength in cut space."),
-                io.Image.Output("aligned_cut", tooltip="The processed cut after align."),
+                io.Image.Output("aligned_cut", tooltip="The processed cut as pasted: after "
+                                                       "align, color and texture."),
                 io.Image.Output("paste_area", tooltip="The final image around the paste, "
                                                       "marked with the mask, grow, the blend "
                                                       "band, the edge fade and the align area."),
                 io.Mask.Output("paste_mask", tooltip="Blend strength applied to each source "
                                                      "pixel."),
+                io.Mask.Output("change_mask", tooltip="What the edit changed, found without "
+                                                      "a fixed threshold, in source space. "
+                                                      "Empty when color and texture are off."),
+                io.Image.Output("measure_view", tooltip="Where color was measured, what the "
+                                                        "edit changed, the plateau before and "
+                                                        "after, the fitted grade, confidence "
+                                                        "and warnings."),
             ],
         )
 
     @classmethod
     def execute(cls, image, processed, warp_info, blend, grow, feather, edge_feather,
-                align, align_strength, seam_band, blend_mask=None) -> io.NodeOutput:
-        flows = seam_align.raft_flows(_flow()) if align != "none" else None
+                align, align_strength, seam_band, color="grade + edge", grade_strength=1.0,
+                edge_profile="smooth", edge_width=128, texture="match",
+                feather_detail="keep", blend_mask=None) -> io.NodeOutput:
+        need_flow = align != "none" or color != "off" or texture != "off"
+        flows = seam_align.raft_flows(_flow()) if need_flow else None
         return io.NodeOutput(*cut_paste.paste(
             image, processed, warp_info, blend, grow, feather, edge_feather, align,
-            align_strength, seam_band, blend_mask, flows=flows))
+            align_strength, seam_band, blend_mask, flows=flows, color=color,
+            grade_strength=grade_strength, edge_profile=edge_profile, edge_width=edge_width,
+            texture=texture, feather_detail=feather_detail))
 
 
 class TPSCutPasteExtension(ComfyExtension):

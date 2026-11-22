@@ -24,7 +24,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
 
-from . import seam_align
+from . import color_match, seam_align
 
 # width, height. 21:9 is landscape only; tall regions stop at 9:16.
 RATIOS = ((1, 1), (3, 2), (2, 3), (4, 3), (3, 4), (16, 9), (9, 16), (21, 9))
@@ -550,12 +550,19 @@ def _cut_preview(img, m, A, ts, cw, ch, s, steps, context_expand, nearest_ratio,
 # ---------------------------------------------------------------- paste
 
 def paste(image, processed, warp_info, blend="mask", grow=8, feather=24, edge_feather=32,
-          align="seam", align_strength=1.0, seam_band=48, blend_mask=None, flows=None):
+          align="seam", align_strength=1.0, seam_band=48, blend_mask=None, flows=None,
+          color="off", grade_strength=1.0, edge_profile="smooth", edge_width=128,
+          texture="off", feather_detail="plain"):
     """The source with the processed cut pasted back: the image, the blend mask in cut
-    space, the cut after align, the paste area preview and the paste mask.
+    space, the cut as pasted (after align, color and texture), the paste area preview,
+    the paste mask, the change mask and the measurement view.
 
     `flows(a, b)` gives forward and backward optical flow between two float [0, 1]
-    frames (see `seam_align`); it is needed only when `align` is not "none"."""
+    frames (see `seam_align`); it is needed when `align` is not "none", and it makes
+    the color match find changes by geometry too.
+
+    color ("off", "grade", "edge", "grade + edge"), texture ("off", "match") and
+    feather_detail ("plain", "keep") are `color_match`; off here, on in the node."""
     info = warp_info
     img = image.float()
     B, H, W, C = img.shape
@@ -575,6 +582,13 @@ def paste(image, processed, warp_info, blend="mask", grow=8, feather=24, edge_fe
                              antialias=True, align_corners=False).clamp(0, 1)
 
     stages = None  # (start, grown) cut masks for the paste area
+    painted = (blend_mask if blend_mask is not None else info["cut_mask"]).float().to(dev)
+    if painted.dim() == 2:
+        painted = painted[None]
+    painted = painted[:, None]
+    if tuple(painted.shape[-2:]) != (ch, cw):
+        painted = F.interpolate(painted, size=(ch, cw), mode="bilinear", align_corners=False)
+    matching = color != "off" or texture != "off"
     if blend == "full_cut":
         bm = torch.ones(1, 1, ch, cw, device=dev)
     else:
@@ -595,18 +609,33 @@ def paste(image, processed, warp_info, blend="mask", grow=8, feather=24, edge_fe
     A_inv = torch.linalg.inv(A)
     out = img.clone()
     paste_mask = torch.zeros(B, H, W, device=dev)
-    aligned, did_align, rects = [], [], []
+    change_mask = torch.zeros(B, H, W, device=dev)
+    aligned, did_align, rects, views = [], [], [], []
+    to_np = lambda x: x[0, :3].permute(1, 2, 0).float().cpu().numpy().astype(np.float32)
     for b in range(B):
         t = ts[b]
         p_src = proc[min(b, proc.shape[0] - 1)][None]
         aligned_from = p_src
         m_src = bm[b:b + 1]
-        if align != "none" and align_strength > 0:
+        original = None
+        if (align != "none" and align_strength > 0) or (matching and n_ch >= 3):
             original = warp_sample(img[b:b + 1].permute(0, 3, 1, 2), A, t, ch, cw,
                                    "bicubic", "border", s).clamp(0, 1)
+        if align != "none" and align_strength > 0:
             p_src = _align_cut(original, p_src, m_src, align, align_strength, seam_band, flows)
-        aligned.append(p_src)
         did_align.append(p_src is not aligned_from)  # _align_cut returns its input on failure
+        change_cut = None
+        if matching and n_ch >= 3:
+            o_np, p_np = to_np(original), to_np(p_src)
+            fixed, change_cut, report = color_match.match(
+                o_np, p_np, painted[min(b, painted.shape[0] - 1), 0].cpu().numpy() > 0.5,
+                m_src[0, 0].cpu().numpy(), flows, color, grade_strength, edge_profile,
+                edge_width, texture)
+            views.append(color_match.render_view(o_np, p_np, fixed, m_src[0, 0].cpu().numpy(),
+                                                 report, sorted(open_sides[b])))
+            fixed_t = torch.from_numpy(fixed).to(dev).permute(2, 0, 1)[None]
+            p_src = torch.cat([fixed_t, p_src[:, 3:]], 1) if p_src.shape[1] > 3 else fixed_t
+        aligned.append(p_src)
         pc = _corners(cw, ch, dev, torch.float32) @ A.T + t
         rx0 = max(0, int(math.floor(pc[:, 0].min().item())) - 1)
         ry0 = max(0, int(math.floor(pc[:, 1].min().item())) - 1)
@@ -629,19 +658,51 @@ def paste(image, processed, warp_info, blend="mask", grow=8, feather=24, edge_fe
         p = p[0].permute(1, 2, 0)
         a = a[0].permute(1, 2, 0)
         region = out[b, ry0:ry1, rx0:rx1, :n_ch]
-        out[b, ry0:ry1, rx0:rx1, :n_ch] = region * (1 - a) + p * a
+        mixed = region * (1 - a) + p * a
+        if feather_detail == "keep" and n_ch >= 3:
+            kept = color_match.energy_blend(region[..., :3].float().cpu().numpy(),
+                                            p[..., :3].float().cpu().numpy(),
+                                            a[..., 0].float().cpu().numpy())
+            mixed = torch.cat([torch.from_numpy(kept).to(dev), mixed[..., 3:]], -1)
+        out[b, ry0:ry1, rx0:rx1, :n_ch] = mixed
         paste_mask[b, ry0:ry1, rx0:rx1] = a[..., 0]
+        if change_cut is not None:
+            cm = torch.from_numpy(change_cut).to(dev)[None, None]
+            change_mask[b, ry0:ry1, rx0:rx1] = warp_sample(
+                cm, A_inv, t_loc, rh, rw, "bilinear", "zeros", 1 / s, "gauss")[0, 0].clamp(0, 1)
 
     aligned_cut = torch.cat(aligned).permute(0, 2, 3, 1)
+    notes = [f"color {color}, texture {texture}, feather detail {feather_detail}"
+             + (": see measure_view" if matching else "")]
     area = _paste_area(out, A, ts, cw, ch, s, rects, bm, stages, open_sides, did_align,
                        blend, blend_mask is not None, grow, feather, edge_feather,
-                       align, align_strength, seam_band)
+                       align, align_strength, seam_band, notes)
+    view = _stack_views(views, dev) if views else _off_view(dev, B)
     return (out.to(image.dtype), bm[:, 0], aligned_cut.to(image.dtype),
-            area.to(image.dtype), paste_mask)
+            area.to(image.dtype), paste_mask, change_mask, view.to(image.dtype))
+
+
+def _stack_views(views, dev):
+    """The measurement views of a batch, padded to one size so they stack."""
+    h = max(v.shape[0] for v in views)
+    w = max(v.shape[1] for v in views)
+    out = torch.full((len(views), h, w, 3), 24 / 255, device=dev)
+    for i, v in enumerate(views):
+        out[i, :v.shape[0], :v.shape[1]] = torch.from_numpy(v).to(dev)
+    return out
+
+
+def _off_view(dev, B):
+    img = Image.new("RGB", (560, 80), (24, 24, 24))
+    ImageDraw.Draw(img).text((16, 28), "color and texture match off: nothing measured",
+                             fill=(200, 200, 200), font=_font(16))
+    v = torch.from_numpy(np.asarray(img, np.float32) / 255.0).to(dev)
+    return v[None].expand(B, -1, -1, -1)
 
 
 def _paste_area(out, A, ts, cw, ch, s, rects, bm, stages, open_sides, did_align, blend,
-                has_override, grow, feather, edge_feather, align, align_strength, seam_band):
+                has_override, grow, feather, edge_feather, align, align_strength, seam_band,
+                notes=()):
     """The final image around each paste, zoomed so cut-px settings are visible,
     with every blend step marked. One image per batch item."""
     B, H, W, C = out.shape
@@ -713,6 +774,7 @@ def _paste_area(out, A, ts, cw, ch, s, rects, bm, stages, open_sides, did_align,
             contours.append((c["seam"], to_disp(core), 0.5))
             lines.append((c["seam"], f"align seam{strength}: inside the magenta line stays as "
                                      f"generated (band {seam_band} cut px)"))
+        lines.extend((None, n) for n in notes)
         results.append(_render_paste_area(bg, alpha, contours, quads, lines))
 
     # Legend fonts can shrink per image to fit, so pad to the tallest.

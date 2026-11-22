@@ -196,7 +196,7 @@ def test_paste_area_and_paste_mask():
     img = scene(1200, 1600).repeat(2, 1, 1, 1)
     m = torch.cat([disk(1200, 1600, 700, 500, 150), disk(1200, 1600, 1500, 120, 100)])
     c, cm, info = cut(img, m, *ARGS)
-    out, bm, _, area, pm = paste(img, c.flip(-1), info, "mask", 8, 24, 32, "none")
+    out, bm, _, area, pm, *_ = paste(img, c.flip(-1), info, "mask", 8, 24, 32, "none")
     assert pm.shape == (2, 1200, 1600) and area.shape[0] == 2 and area.shape[-1] == 3
     assert (out - img).abs().amax(-1)[pm == 0].max() == 0, "nothing outside paste_mask may change"
     assert pm[0, 500, 700] > 0.99 and pm[0, 1100, 100] == 0
