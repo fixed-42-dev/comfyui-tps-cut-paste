@@ -178,6 +178,43 @@ def test_a_source_size_change_mask_lands_in_the_cut():
         color_match_cut(src, c, info, change_mask=torch.ones(1, 100, 300))
 
 
+def test_background_mode_matches_the_redraw_and_keeps_the_object():
+    """A redraw under the mask comes back darker around a new object: the redraw
+    takes the original's tone back, the object stays as drawn."""
+    o = scene(seed=8)
+    mask = disk(320, 320, 160, 160, 90)
+    e = o.copy()
+    lab = cm.to_oklab(e)
+    lab[mask, 0] -= 0.05                               # the redraw, darker
+    e = cm.from_oklab(lab)
+    obj = disk(320, 320, 160, 160, 30)
+    e[obj] = [0.9, 0.9, 0.95]
+    out, report = cm.background_match(o, e, obj, texture="off")
+    around = mask & ~disk(320, 320, 160, 160, 40)
+    d_before = np.median((cm.to_oklab(e) - cm.to_oklab(o))[around, 0])
+    d_after = np.median((cm.to_oklab(out) - cm.to_oklab(o))[around, 0])
+    assert d_before < -0.04 and abs(d_after) < 0.006
+    inner = disk(320, 320, 160, 160, 26)
+    assert np.abs(out[inner] - e[inner]).max() < 0.01
+    far = ~disk(320, 320, 160, 160, 120)
+    assert np.abs(out[far] - o[far]).max() < 0.01
+    view = cm.render_background_view(out, report)
+    assert view.ndim == 3 and view.shape[-1] == 3
+
+
+def test_background_mode_needs_the_object():
+    H, W = 256, 256
+    src = torch.from_numpy(scene(H, W))[None]
+    mask = torch.from_numpy(disk(H, W, 128, 128, 40).astype(np.float32))[None]
+    c, _, info, _ = cut(src, mask, 256, 1.8, 6.0, 0, 16, True, 0.1)
+    edited = torch.from_numpy(graded(c[0].numpy()))[None]
+    fixed, change, view = color_match_cut(src, edited, info, mode="background")
+    assert torch.allclose(fixed, edited) and change.abs().sum() == 0
+    obj = torch.from_numpy(disk(H, W, 128, 128, 15).astype(np.float32))[None]
+    fixed, change, view = color_match_cut(src, edited, info, change_mask=obj, mode="background")
+    assert change.sum() > 0 and not torch.allclose(fixed, edited)
+
+
 @pytest.mark.parametrize("sigma", [3.0, 12.8, 51.2, 204.8])
 def test_wide_blur_matches_a_full_gaussian(sigma):
     """The shrunk blur behind the fills stays within a few thousandths of a

@@ -196,12 +196,21 @@ class TPSColorMatch(io.ComfyNode):
                                tooltip="Match the edit's detail energy per frequency band "
                                        "to the original's (edit models smooth fine texture "
                                        "and boost mid-scale contrast)."),
+                io.Combo.Input("mode", options=["edit", "background"], default="edit",
+                               tooltip="edit: an edit model's overall change is undone and "
+                                       "what it changed is kept. background: for inpainting "
+                                       "that redraws the whole mask (high denoise): "
+                                       "change_mask is the object, and the redraw around it "
+                                       "takes back the original's broad tone at the same "
+                                       "place; grade_strength scales it, the edge settings "
+                                       "do nothing."),
                 io.Mask.Input("change_mask", optional=True,
-                              tooltip="What the edit changed, when the one found is wrong: "
-                                      "painted, or from a segmentation model. The size of "
+                              tooltip="What the edit changed, when the one found is wrong; "
+                                      "in background mode, the object to keep (required). "
+                                      "Painted, or from a segmentation model, the size of "
                                       "the source (painted on it or on the pasted result) "
-                                      "or of the cut. Light or shadow the change cast past "
-                                      "it is still found by color."),
+                                      "or of the cut. In edit mode, light or shadow the "
+                                      "change cast past it is still found by color."),
                 io.Mask.Input("blend_mask", optional=True,
                               tooltip="The blend_mask given to TPS Paste, if any: the edge "
                                       "correction is measured at its edge."),
@@ -220,13 +229,13 @@ class TPSColorMatch(io.ComfyNode):
 
     @classmethod
     def execute(cls, processed, image, warp_info, color="grade + edge", grade_strength=1.0,
-                edge_profile="smooth", edge_width=128, texture="match", change_mask=None,
-                blend_mask=None) -> io.NodeOutput:
+                edge_profile="smooth", edge_width=128, texture="match", mode="edit",
+                change_mask=None, blend_mask=None) -> io.NodeOutput:
         flows = (seam_align.raft_flows(_flow())
-                 if color != "off" or texture != "off" else None)
+                 if mode == "edit" and (color != "off" or texture != "off") else None)
         return io.NodeOutput(*cut_paste.color_match_cut(
             image, processed, warp_info, change_mask, blend_mask, flows, color,
-            grade_strength, edge_profile, edge_width, texture))
+            grade_strength, edge_profile, edge_width, texture, mode))
 
 
 class TPSCutPasteExtension(ComfyExtension):

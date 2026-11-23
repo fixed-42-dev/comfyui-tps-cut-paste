@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- **TPS Color Match `mode` background**, for inpainting that redraws the whole mask
+  (high denoise under a soft mask): `change_mask` is the new object, and the redraw
+  around it takes back the original's low-frequency tone at the same place, with its
+  texture gain matched too. The object stays as generated. Needs no optical flow. A
+  new widget after `texture`, so saved 0.2.0 workflows load in edit mode.
+
 ## 0.2.0
 
 - **TPS Color Match**, a new node between the edit and TPS Paste, matches the edit's
