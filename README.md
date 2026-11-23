@@ -155,6 +155,22 @@ matches.
    (1 − α)·var_o + α·var_p using the measured covariance; α = 0 and α = 1 pixels are
    returned exactly.
 
+**Background mode** (`mode` background) is for inpainting that redraws the whole
+masked area, such as a sampler at high denoise under a soft mask with Differential
+Diffusion. There, everything the sampler left alone is the original, so there is no
+overall grade to measure, and edit mode finds nothing. The redraw around the new
+object comes back in its own tones instead. With `change_mask` set to the object
+(from a segmentation model such as BiRefNet through the core Remove Background node,
+or painted), the low-frequency Oklab difference to the original at the same place is
+measured on every other pixel, filled in under the object by normalized convolution
+at 1/64 of the cut, and undone outside the object; the texture gain is measured the
+same way. The redraw keeps its texture and takes back the original's broad tone. On a
+jet inserted into clouds at denoise 0.8, the redrawn clouds went from −0.031 to −0.004
+Oklab L against the original (a whole-cut statistics match: −0.018, and it turned the
+engines blue), with the jet unchanged. Shapes larger than that scale that the object
+did not cover come back from the original, and so does any light or shadow the object
+cast. No optical flow is needed.
+
 `measure_view` draws the measurement: the band and its trusted pixels, the change
 inside and outside the mask, open sides, the plateau before and after, the fitted
 grade curve, band completeness, confidence and warnings. `change_mask` is the change
@@ -190,6 +206,7 @@ border changed the region.
 | `edge_profile` | smooth | `smooth`, `linear`, `decay` or `entire` |
 | `edge_width` | 128 | cut px over which the edge correction fades inward |
 | `texture` | match | `match` or `off` |
+| `mode` | edit | `edit` (an edit model) or `background` (a redraw around a new object; `change_mask` is the object, `grade_strength` scales the match, the edge settings do nothing) |
 | `change_mask` | — | what the edit changed, when the one found is wrong: the size of the source (painted on it, or on the pasted result) or of the cut |
 | `blend_mask` | — | the `blend_mask` given to TPS Paste, if any |
 

@@ -699,7 +699,7 @@ def _given_at_cut(change_mask, info, b, H, W, dev):
 
 def color_match_cut(image, processed, warp_info, change_mask=None, blend_mask=None,
                     flows=None, color="grade + edge", grade_strength=1.0,
-                    edge_profile="smooth", edge_width=128, texture="match"):
+                    edge_profile="smooth", edge_width=128, texture="match", mode="edit"):
     """The processed cut with its color and texture matched to the source's, before
     it is pasted: the corrected cut (at cut size, in the processed cut's own
     layout), the change mask in cut space and the measurement view.
@@ -710,7 +710,12 @@ def color_match_cut(image, processed, warp_info, change_mask=None, blend_mask=No
     any mode. change_mask, when given, says what the edit changed (see
     `color_match.trust`). The edge correction is measured at the edge of the
     painted mask (blend_mask, or the cut mask) grown as TPS Paste grows it by
-    default."""
+    default.
+
+    mode "background" is for inpainting that redraws the whole masked area:
+    change_mask is then the object, and the redraw around it takes back the
+    original's low-frequency tone (see `color_match.background_match`); color
+    not off turns that on, grade_strength scales it, and no flow is needed."""
     info = warp_info
     img = image.float()
     B, H, W, C = img.shape
@@ -725,6 +730,11 @@ def color_match_cut(image, processed, warp_info, change_mask=None, blend_mask=No
     if n_ch < 3 or C < 3 or (color == "off" and texture == "off"):
         return (proc.permute(0, 2, 3, 1).to(processed.dtype), torch.zeros(proc.shape[0], ch, cw),
                 _off_view(dev, B).to(processed.dtype))
+    if mode == "background":
+        return _background_cut(img, proc, info, change_mask, color, grade_strength, texture,
+                               processed.dtype)
+    if mode != "edit":
+        raise ValueError(f"mode is edit or background, not {mode!r}")
     open_sides = [_sides_on_image_border(A, ts[b], cw, ch, W, H) for b in range(B)]
     painted = _cut_mask(blend_mask if blend_mask is not None else info["cut_mask"], ch, cw, dev)
     bm, _ = _blend_alpha(info, blend_mask, "mask", PASTE_GROW, PASTE_FEATHER, 0, open_sides, dev)
@@ -753,6 +763,41 @@ def color_match_cut(image, processed, warp_info, change_mask=None, blend_mask=No
     out = torch.cat(outs).permute(0, 2, 3, 1)
     return (out.to(processed.dtype), torch.stack(changes).to(dev),
             _stack_views(views, dev).to(processed.dtype))
+
+
+def _background_cut(img, proc, info, change_mask, color, grade_strength, texture, dtype):
+    B, H, W, _ = img.shape
+    dev = img.device
+    cw, ch, s = info["cut_w"], info["cut_h"], info["scale"]
+    A, ts = info["A"].to(dev), info["t"].to(dev)
+    n_ch = proc.shape[1]
+    if change_mask is None:
+        return (proc.permute(0, 2, 3, 1).to(dtype), torch.zeros(proc.shape[0], ch, cw, device=dev),
+                _message_view(dev, B, "background mode needs a change_mask: the object to keep. "
+                                      "Nothing was changed.").to(dtype))
+    to_np = lambda x: x[0, :3].permute(1, 2, 0).float().cpu().numpy().astype(np.float32)
+    outs, changes, views = [], [], []
+    for b in range(max(B, proc.shape[0])):
+        bi = min(b, B - 1)
+        p_src = proc[min(b, proc.shape[0] - 1)][None]
+        original = warp_sample(img[bi:bi + 1].permute(0, 3, 1, 2), A, ts[bi], ch, cw,
+                               "bicubic", "border", s).clamp(0, 1)
+        obj = _given_at_cut(change_mask, info, bi, H, W, dev)
+        fixed, report = color_match.background_match(
+            to_np(original), to_np(p_src), obj, grade_strength if color != "off" else 0.0, texture)
+        views.append(color_match.render_background_view(fixed, report))
+        fixed = torch.from_numpy(fixed).to(dev).permute(2, 0, 1)[None]
+        outs.append(torch.cat([fixed, p_src[:, 3:]], 1) if n_ch > 3 else fixed)
+        changes.append(torch.from_numpy((obj > 0.5).astype(np.float32)))
+    return (torch.cat(outs).permute(0, 2, 3, 1).to(dtype), torch.stack(changes).to(dev),
+            _stack_views(views, dev).to(dtype))
+
+
+def _message_view(dev, B, text):
+    img = Image.new("RGB", (760, 80), (24, 24, 24))
+    ImageDraw.Draw(img).text((16, 28), text, fill=(255, 150, 0), font=_font(16))
+    v = torch.from_numpy(np.asarray(img, np.float32) / 255.0).to(dev)
+    return v[None].expand(B, -1, -1, -1)
 
 
 def _stack_views(views, dev):

@@ -24,6 +24,10 @@ what it did to its surroundings stay.
              the original's; the feather keeps the detail energy of both sides
              instead of averaging two different textures into a soft halo.
 
+`background_match` is the other mode, for inpainting that redraws the whole
+masked area: only the given object counts as changed, and the redraw around it
+takes the original's low-frequency tone back.
+
 Frames here are float32 (h, w, 3) sRGB in [0, 1]. The proof of concept and the
 tests behind the choices are in poc/color/ on the color-match-poc branch.
 """
@@ -456,6 +460,103 @@ def apply_correction(img, corr):
     if corr["texture"] is not None:
         out = apply_texture(out, corr["texture"])
     return out.astype(np.float32)
+
+
+# ------------------------------------------------ background mode
+
+def background_match(original, processed, obj, strength=1.0, texture="match", work=WORK):
+    """The processed cut with its regenerated background matched to the original.
+
+    For inpainting that redraws the whole masked area (a sampler at high denoise
+    under a soft mask): there is no overall grade to undo, since everything the
+    sampler left alone is the original, but the redrawn background comes back in
+    its own tones. Here only the object (obj, (h, w), from a segmentation model
+    or painted) counts as changed; everywhere else the low-frequency Oklab
+    difference to the original at the same place is measured, spread under the
+    object by normalized convolution, and undone outside it. The redrawn texture
+    stays, only its broad tone moves; anything larger than about 1/30 of the
+    cut that the object did not cover comes back from the original, and so
+    does light or shadow the object cast on its surroundings.
+
+    Returns the corrected cut and a report for `render_background_view`."""
+    h, w = original.shape[:2]
+    k = min(1.0, work / max(h, w))
+    ww, wh = max(8, int(round(w * k / 8)) * 8), max(8, int(round(h * k / 8)) * 8)
+    o = cv2.resize(original, (ww, wh), interpolation=cv2.INTER_AREA)
+    p = cv2.resize(processed, (ww, wh), interpolation=cv2.INTER_AREA)
+    ob = cv2.resize((obj > 0.5).astype(np.uint8), (ww, wh), interpolation=cv2.INTER_NEAREST)
+    sigma = max(ww, wh) / 64.0
+    # The object's own edge pixels mix it with the background: keep them out.
+    r_ex = max(2, int(round(sigma / 4)))
+    excl = cv2.dilate(ob, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r_ex + 1,) * 2)) > 0
+    r = to_oklab(o) - to_oklab(p)
+    field = np.stack([fill(r[..., c], (~excl).astype(np.float32), sigma, scales=(1, 3, 9))
+                      for c in range(3)], -1)
+    keep = 1.0 - cv2.GaussianBlur((obj > 0.5).astype(np.float32), (0, 0), 1.5)
+    field_full = cv2.resize(field, (w, h), interpolation=cv2.INTER_CUBIC)
+    out = from_oklab(to_oklab(processed) + strength * field_full * keep[..., None])
+    gains = None
+    if texture == "match":
+        excl_full = cv2.resize(excl.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
+        gm, gains = texture_gains(original, out, (1 - excl_full).astype(np.float32))
+        if gm:
+            out = keep[..., None] * apply_texture(out, gm) + (1 - keep[..., None]) * out
+    warnings = []
+    if not ob.any():
+        warnings.append("the change_mask is empty: the whole redraw is matched, any object too")
+    report = dict(size=(ww, wh), o=o, p=p, obj=ob > 0, excl=excl, r=r, field=field, gains=gains,
+                  strength=strength, texture=texture, warnings=warnings)
+    return out.astype(np.float32), report
+
+
+def render_background_view(corrected, report, height=560):
+    """The object, the low-frequency difference to the original before and after,
+    and the numbers. Returns (h, w, 3) float32 in [0, 1]."""
+    ww, wh = report["size"]
+    height = int(min(height, 1800 * wh / (3 * ww)))
+    pw = max(1, int(round(ww * height / wh)))
+    rs = lambda a, interp=cv2.INTER_AREA: cv2.resize(a, (pw, height), interpolation=interp)
+    o, p, obj = report["o"], report["p"], report["obj"]
+    c = cv2.resize(corrected, (ww, wh), interpolation=cv2.INTER_AREA)
+    touched = (np.abs(p - o).max(-1) > 0.01) & ~report["excl"]
+    p1 = rs(p) * 0.5
+    m = rs(obj.astype(np.uint8), cv2.INTER_NEAREST) > 0
+    p1[m] = p1[m] * 0.4 + np.array([230, 60, 50]) / 255 * 0.6
+    t = rs(touched.astype(np.uint8), cv2.INTER_NEAREST) > 0
+    p1[t & ~m] = p1[t & ~m] * 0.6 + np.array([60, 200, 90]) / 255 * 0.4
+    p1 = (np.clip(p1, 0, 1) * 255).astype(np.uint8)
+    sig = max(2.0, max(ww, wh) / 128)
+    lo = to_oklab(o)[..., 0]
+    def diff(img):
+        d = cv2.GaussianBlur((lo - to_oklab(img)[..., 0]).astype(np.float32), (0, 0), sig)
+        v = _diverging(rs(d))
+        v[m] = (v[m] * 0.25 + 40).astype(np.uint8)
+        return v, d
+    p2, d_before = diff(p)
+    p3, d_after = diff(c)
+    f = _font(15)
+    grey, ok, orange = (230, 230, 230), (60, 200, 90), (255, 150, 0)
+    med = lambda d: float(np.median(d[touched])) if touched.any() else 0.0
+    lines = [
+        ("mode: background; the object (red) is kept, the redraw around it (green) is matched", grey),
+        (f"object: {obj.mean() * 100:.1f}% of the cut; redrawn around it: {touched.mean() * 100:.1f}%", grey),
+        (f"redraw vs original, Oklab L median: {-med(d_before):+.4f} before, {-med(d_after):+.4f} after "
+         f"(strength {report['strength']:.2f})", ok),
+        ("difference: red = darker than the original, blue = brighter (Oklab L, +-0.06)", grey),
+        ("texture gain per band: " + (" ".join(f"{g:.2f}" for g in report["gains"]) if report["gains"] else "-"), grey),
+    ] + [(f"WARNING: {w_}", orange) for w_ in report["warnings"]]
+    row_h = 16 + 30 * len(lines)
+    total_w = max(pw * 3 + 16, 900)
+    canvas = Image.new("RGB", (total_w, 28 + height + 8 + row_h), (24, 24, 24))
+    dc = ImageDraw.Draw(canvas)
+    x0 = (total_w - (pw * 3 + 16)) // 2
+    for i, (img, title) in enumerate([(p1, "object and redraw"), (p2, "difference before"),
+                                      (p3, "after")]):
+        canvas.paste(Image.fromarray(img), (x0 + i * (pw + 8), 28))
+        dc.text((x0 + i * (pw + 8) + 4, 6), title, fill=grey, font=f)
+    for i, (t_, col) in enumerate(lines):
+        dc.text((12, 28 + height + 8 + 12 + i * 30), t_, fill=col, font=f)
+    return np.asarray(canvas, np.float32) / 255.0
 
 
 # ------------------------------------------------ the measurement view
