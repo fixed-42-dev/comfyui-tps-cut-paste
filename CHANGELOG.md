@@ -18,6 +18,9 @@
 - **TPS Paste** gains `feather_detail` (keep / plain): the feather keeps the detail
   energy of both sides instead of a soft halo. Saved 0.1.0 workflows load
   unchanged.
+- Example workflow `demo_tps_cut_paste_qwen_image_2_1`: TPS Cut, a Qwen Image 2.1
+  edit, TPS Color Match and TPS Paste, with the painted Mona Lisa it runs on
+  (`demo_mona_lisa_balloon.webp`).
 - Test workflows in `example_workflows/tests/`.
 
 ## 0.1.0

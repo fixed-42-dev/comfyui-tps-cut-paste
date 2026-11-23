@@ -258,6 +258,20 @@ download.pytorch.org on the first TPS Color Match, or TPS Paste with `align` on.
 Clone into `ComfyUI/custom_nodes/` and restart, or install `comfyui-tps-cut-paste`
 from the Comfy Registry.
 
+## Example workflow
+
+`example_workflows/demo_tps_cut_paste_qwen_image_2_1.json` (Workflow > Browse
+Templates, under this pack): TPS Cut → Qwen Image 2.1 edit → TPS Color Match → TPS
+Paste, adding a hot-air balloon to the Mona Lisa. Copy
+`example_workflows/demo_mona_lisa_balloon.webp` (the painting with the mask already
+painted in its alpha) into ComfyUI's `input` folder. The workflow previews the cut,
+the edited cut, `measure_view`, `change_mask` and the paste area, and compares the
+original with the result. Models: Qwen Image 2.1 int8, the `qwen3vl_8b_int8_convrot`
+text encoder and the Qwen Image 2.1 VAE, from Comfy-Org/Qwen-Image-2.1 on Hugging
+Face.
+
+Mona Lisa, Leonardo da Vinci, public domain.
+
 ## Test
 
 ```
@@ -269,7 +283,9 @@ and paste it twice, with and without TPS Color Match, side by side with
 `measure_view`: a sparrow (small object), a balloon (a large object) and a lantern
 (an edit that relights and redraws past its mask; its note shows how to give it a
 `change_mask`). Each needs its painted input image in ComfyUI's `input/`
-folder (`demo_mona_lisa_*.png`).
+folder: the balloon's is `example_workflows/demo_mona_lisa_balloon.webp`; for the
+others, paint a mask on the Mona Lisa where the prompt puts the sparrow or the
+lantern.
 
 ## Licence
 
