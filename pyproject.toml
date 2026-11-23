@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-tps-cut-paste"
-description = "Cut a masked area out for editing and paste it back aligned: RAFT optical flow both ways, round-trip-checked grid matches, and a smoothed thin-plate-spline warp, so the edited cut lines up with the original where the blend fades. Only the cut reaches VAE and sampler."
-version = "0.1.0"
+description = "Cut a masked area out for editing and paste it back aligned: RAFT optical flow both ways, round-trip-checked grid matches, and a smoothed thin-plate-spline warp, so the edited cut lines up with the original where the blend fades. A color match in between undoes the overall grade and texture change the edit model made, measured only where the edit left the picture alone. Only the cut reaches VAE and sampler."
+version = "0.2.0"
 license = { file = "LICENSE" }
 dependencies = ["numpy", "scipy", "opencv-python-headless"]
 

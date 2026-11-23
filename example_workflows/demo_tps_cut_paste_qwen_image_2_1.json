@@ -1,0 +1,1098 @@
+{
+ "id": "7f3c8ef4-4064-44be-950c-82f737e3bb8d",
+ "revision": 0,
+ "last_node_id": 19,
+ "last_link_id": 26,
+ "nodes": [
+  {
+   "id": 1,
+   "type": "LoadImage",
+   "pos": [
+    0,
+    0
+   ],
+   "size": [
+    320,
+    420
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "localized_name": "IMAGE",
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      1,
+      14,
+      16,
+      20
+     ]
+    },
+    {
+     "localized_name": "MASK",
+     "name": "MASK",
+     "type": "MASK",
+     "links": [
+      2
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "LoadImage"
+   },
+   "widgets_values": [
+    "demo_mona_lisa_balloon.webp",
+    "image"
+   ],
+   "title": "Painted image"
+  },
+  {
+   "id": 2,
+   "type": "TPSCut",
+   "pos": [
+    360,
+    0
+   ],
+   "size": [
+    300,
+    334
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "image",
+     "name": "image",
+     "type": "IMAGE",
+     "link": 1
+    },
+    {
+     "localized_name": "mask",
+     "name": "mask",
+     "type": "MASK",
+     "link": 2
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "cut",
+     "name": "cut",
+     "type": "IMAGE",
+     "links": [
+      5
+     ]
+    },
+    {
+     "localized_name": "cut_mask",
+     "name": "cut_mask",
+     "type": "MASK",
+     "links": []
+    },
+    {
+     "localized_name": "warp_info",
+     "name": "warp_info",
+     "type": "TPS_WARP_INFO",
+     "links": [
+      15,
+      18
+     ]
+    },
+    {
+     "localized_name": "cut_area",
+     "name": "cut_area",
+     "type": "IMAGE",
+     "links": [
+      22
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "TPSCut"
+   },
+   "widgets_values": [
+    1024,
+    2.0,
+    6,
+    0,
+    32,
+    true,
+    0.1,
+    512,
+    true,
+    0.05
+   ]
+  },
+  {
+   "id": 3,
+   "type": "UNETLoader",
+   "pos": [
+    360,
+    420
+   ],
+   "size": [
+    380,
+    82
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "localized_name": "MODEL",
+     "name": "MODEL",
+     "type": "MODEL",
+     "links": [
+      3
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "UNETLoader",
+    "models": [
+     {
+      "name": "qwen_image_2.1_int8_convrot.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+      "directory": "diffusion_models"
+     }
+    ]
+   },
+   "widgets_values": [
+    "qwen_image_2.1_int8_convrot.safetensors",
+    "default"
+   ]
+  },
+  {
+   "id": 4,
+   "type": "QwenImage21Cache",
+   "pos": [
+    780,
+    420
+   ],
+   "size": [
+    270,
+    82
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "model",
+     "name": "model",
+     "type": "MODEL",
+     "link": 3
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "MODEL",
+     "name": "MODEL",
+     "type": "MODEL",
+     "links": [
+      7
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "QwenImage21Cache"
+   },
+   "widgets_values": [
+    "auto",
+    "default"
+   ]
+  },
+  {
+   "id": 5,
+   "type": "CLIPLoader",
+   "pos": [
+    360,
+    550
+   ],
+   "size": [
+    380,
+    106
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "localized_name": "CLIP",
+     "name": "CLIP",
+     "type": "CLIP",
+     "links": [
+      4
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CLIPLoader",
+    "models": [
+     {
+      "name": "qwen3vl_8b_int8_convrot.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+      "directory": "text_encoders"
+     }
+    ]
+   },
+   "widgets_values": [
+    "qwen3vl_8b_int8_convrot.safetensors",
+    "qwen_image",
+    "default"
+   ]
+  },
+  {
+   "id": 6,
+   "type": "VAELoader",
+   "pos": [
+    360,
+    700
+   ],
+   "size": [
+    380,
+    58
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "localized_name": "VAE",
+     "name": "VAE",
+     "type": "VAE",
+     "links": [
+      6,
+      12
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VAELoader",
+    "models": [
+     {
+      "name": "qwen_image_2.1_vae_bf16.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors",
+      "directory": "vae"
+     }
+    ]
+   },
+   "widgets_values": [
+    "qwen_image_2.1_vae_bf16.safetensors"
+   ]
+  },
+  {
+   "id": 7,
+   "type": "TextEncodeQwenImage21",
+   "pos": [
+    780,
+    540
+   ],
+   "size": [
+    420,
+    330
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "clip",
+     "name": "clip",
+     "type": "CLIP",
+     "link": 4
+    },
+    {
+     "localized_name": "image_1",
+     "name": "images.image_1",
+     "type": "IMAGE",
+     "link": 5,
+     "shape": 7
+    },
+    {
+     "localized_name": "vae",
+     "name": "vae",
+     "type": "VAE",
+     "link": 6,
+     "shape": 7
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "positive",
+     "name": "positive",
+     "type": "CONDITIONING",
+     "links": [
+      8
+     ]
+    },
+    {
+     "localized_name": "negative",
+     "name": "negative",
+     "type": "CONDITIONING",
+     "links": [
+      9
+     ]
+    },
+    {
+     "localized_name": "latent",
+     "name": "latent",
+     "type": "LATENT",
+     "links": [
+      10
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "TextEncodeQwenImage21"
+   },
+   "widgets_values": [
+    "Add a large red hot-air balloon floating in the sky. Keep everything else in the painting exactly the same.",
+    "",
+    0
+   ]
+  },
+  {
+   "id": 8,
+   "type": "KSampler",
+   "pos": [
+    1240,
+    420
+   ],
+   "size": [
+    270,
+    262
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "model",
+     "name": "model",
+     "type": "MODEL",
+     "link": 7
+    },
+    {
+     "localized_name": "positive",
+     "name": "positive",
+     "type": "CONDITIONING",
+     "link": 8
+    },
+    {
+     "localized_name": "negative",
+     "name": "negative",
+     "type": "CONDITIONING",
+     "link": 9
+    },
+    {
+     "localized_name": "latent_image",
+     "name": "latent_image",
+     "type": "LATENT",
+     "link": 10
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "LATENT",
+     "name": "LATENT",
+     "type": "LATENT",
+     "links": [
+      11
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "KSampler"
+   },
+   "widgets_values": [
+    42,
+    "fixed",
+    25,
+    1,
+    "euler",
+    "simple",
+    1
+   ]
+  },
+  {
+   "id": 9,
+   "type": "VAEDecode",
+   "pos": [
+    1540,
+    420
+   ],
+   "size": [
+    140,
+    46
+   ],
+   "flags": {},
+   "order": 8,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "samples",
+     "name": "samples",
+     "type": "LATENT",
+     "link": 11
+    },
+    {
+     "localized_name": "vae",
+     "name": "vae",
+     "type": "VAE",
+     "link": 12
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "IMAGE",
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      13,
+      23
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VAEDecode"
+   }
+  },
+  {
+   "id": 10,
+   "type": "TPSColorMatch",
+   "pos": [
+    1720,
+    0
+   ],
+   "size": [
+    320,
+    300
+   ],
+   "flags": {},
+   "order": 9,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "processed",
+     "name": "processed",
+     "type": "IMAGE",
+     "link": 13
+    },
+    {
+     "localized_name": "image",
+     "name": "image",
+     "type": "IMAGE",
+     "link": 14
+    },
+    {
+     "localized_name": "warp_info",
+     "name": "warp_info",
+     "type": "TPS_WARP_INFO",
+     "link": 15
+    },
+    {
+     "localized_name": "change_mask",
+     "name": "change_mask",
+     "type": "MASK",
+     "link": null,
+     "shape": 7
+    },
+    {
+     "localized_name": "blend_mask",
+     "name": "blend_mask",
+     "type": "MASK",
+     "link": null,
+     "shape": 7
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "processed",
+     "name": "processed",
+     "type": "IMAGE",
+     "links": [
+      17
+     ]
+    },
+    {
+     "localized_name": "change_mask",
+     "name": "change_mask",
+     "type": "MASK",
+     "links": [
+      24
+     ]
+    },
+    {
+     "localized_name": "measure_view",
+     "name": "measure_view",
+     "type": "IMAGE",
+     "links": [
+      26
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "TPSColorMatch"
+   },
+   "widgets_values": [
+    "grade + edge",
+    1.0,
+    "smooth",
+    128,
+    "match"
+   ]
+  },
+  {
+   "id": 11,
+   "type": "TPSPaste",
+   "pos": [
+    2080,
+    0
+   ],
+   "size": [
+    300,
+    300
+   ],
+   "flags": {},
+   "order": 10,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "image",
+     "name": "image",
+     "type": "IMAGE",
+     "link": 16
+    },
+    {
+     "localized_name": "processed",
+     "name": "processed",
+     "type": "IMAGE",
+     "link": 17
+    },
+    {
+     "localized_name": "warp_info",
+     "name": "warp_info",
+     "type": "TPS_WARP_INFO",
+     "link": 18
+    },
+    {
+     "localized_name": "blend_mask",
+     "name": "blend_mask",
+     "type": "MASK",
+     "link": null,
+     "shape": 7
+    }
+   ],
+   "outputs": [
+    {
+     "localized_name": "image",
+     "name": "image",
+     "type": "IMAGE",
+     "links": [
+      19,
+      21
+     ]
+    },
+    {
+     "localized_name": "blend_mask",
+     "name": "blend_mask",
+     "type": "MASK",
+     "links": []
+    },
+    {
+     "localized_name": "aligned_cut",
+     "name": "aligned_cut",
+     "type": "IMAGE",
+     "links": []
+    },
+    {
+     "localized_name": "paste_area",
+     "name": "paste_area",
+     "type": "IMAGE",
+     "links": [
+      25
+     ]
+    },
+    {
+     "localized_name": "paste_mask",
+     "name": "paste_mask",
+     "type": "MASK",
+     "links": []
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "TPSPaste"
+   },
+   "widgets_values": [
+    "mask",
+    8,
+    24,
+    32,
+    "full",
+    1,
+    48,
+    "keep"
+   ]
+  },
+  {
+   "id": 12,
+   "type": "SaveImage",
+   "pos": [
+    2420,
+    0
+   ],
+   "size": [
+    360,
+    420
+   ],
+   "flags": {},
+   "order": 11,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "images",
+     "name": "images",
+     "type": "IMAGE",
+     "link": 19
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "tps_cut_paste_qwen_image_2_1"
+   ]
+  },
+  {
+   "id": 13,
+   "type": "ImageCompare",
+   "pos": [
+    2420,
+    460
+   ],
+   "size": [
+    420,
+    600
+   ],
+   "flags": {},
+   "order": 12,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "image_a",
+     "name": "image_a",
+     "type": "IMAGE",
+     "link": 20,
+     "shape": 7
+    },
+    {
+     "localized_name": "image_b",
+     "name": "image_b",
+     "type": "IMAGE",
+     "link": 21,
+     "shape": 7
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "ImageCompare"
+   },
+   "widgets_values": [],
+   "title": "Original | pasted"
+  },
+  {
+   "id": 14,
+   "type": "PreviewImage",
+   "pos": [
+    700,
+    0
+   ],
+   "size": [
+    300,
+    360
+   ],
+   "flags": {},
+   "order": 13,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "images",
+     "name": "images",
+     "type": "IMAGE",
+     "link": 22
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "title": "Cut area"
+  },
+  {
+   "id": 15,
+   "type": "PreviewImage",
+   "pos": [
+    1240,
+    720
+   ],
+   "size": [
+    300,
+    360
+   ],
+   "flags": {},
+   "order": 14,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "images",
+     "name": "images",
+     "type": "IMAGE",
+     "link": 23
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "title": "Edited cut"
+  },
+  {
+   "id": 16,
+   "type": "MaskPreview",
+   "pos": [
+    1720,
+    340
+   ],
+   "size": [
+    320,
+    320
+   ],
+   "flags": {},
+   "order": 15,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "mask",
+     "name": "mask",
+     "type": "MASK",
+     "link": 24
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "MaskPreview"
+   },
+   "title": "Change mask"
+  },
+  {
+   "id": 17,
+   "type": "PreviewImage",
+   "pos": [
+    2080,
+    340
+   ],
+   "size": [
+    300,
+    320
+   ],
+   "flags": {},
+   "order": 16,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "images",
+     "name": "images",
+     "type": "IMAGE",
+     "link": 25
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "title": "Paste area"
+  },
+  {
+   "id": 18,
+   "type": "PreviewImage",
+   "pos": [
+    1720,
+    700
+   ],
+   "size": [
+    660,
+    460
+   ],
+   "flags": {},
+   "order": 17,
+   "mode": 0,
+   "inputs": [
+    {
+     "localized_name": "images",
+     "name": "images",
+     "type": "IMAGE",
+     "link": 26
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "title": "Measure view"
+  },
+  {
+   "id": 19,
+   "type": "MarkdownNote",
+   "pos": [
+    0,
+    470
+   ],
+   "size": [
+    330,
+    700
+   ],
+   "flags": {},
+   "order": 18,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "MarkdownNote"
+   },
+   "widgets_values": [
+    "## TPS Cut, Color Match and Paste with a Qwen Image 2.1 edit\n\nCopy `demo_mona_lisa_balloon.webp` from this pack's `example_workflows` folder into ComfyUI's `input` folder (the Mona Lisa, with a rough mask already painted in the sky). To edit somewhere else, paint your own mask: right-click the Load Image node, Open in MaskEditor.\n\n1. **TPS Cut** cuts the masked area out and enlarges it, so only the cut goes through VAE and sampler.\n2. **Qwen Image 2.1** edits the cut.\n3. **TPS Color Match** undoes what the edit changed everywhere: the whole cut comes back darker, with its texture redrawn. It measures that only where the edit left the picture alone, so the balloon keeps its own color. **measure_view** shows where it measured, the plateau before and after and the grade it fitted; **change_mask** is what it took as changed. Bypass the node (Ctrl+B) to see the edit unmatched.\n4. **TPS Paste** lines the cut up with the original (`align` full: Qwen Image 2.1 shifts the picture by a few pixels) and blends it back. Outside the mask nothing changes.\n\n**When the change mask is wrong.** An edit that redraws the texture around the object (a lantern that relights the wall) can flood the change mask. Paint the object yourself, or take it from a segmentation node, and wire it to Color Match's `change_mask`, at the size of the source or of the cut. Light the object casts past your mask is still found.\n\n**Settings.** TPS Cut `size_multiple` 32 and the encoder's `resolution` 0 keep the cut at its own size. The text encoder is `qwen3vl_8b_int8_convrot`, with no prompt enhancer; cfg 1, so the negative prompt does nothing.\n\nMona Lisa, Leonardo da Vinci, public domain.\n"
+   ],
+   "title": "Read me"
+  }
+ ],
+ "links": [
+  [
+   1,
+   1,
+   0,
+   2,
+   0,
+   "IMAGE"
+  ],
+  [
+   2,
+   1,
+   1,
+   2,
+   1,
+   "MASK"
+  ],
+  [
+   3,
+   3,
+   0,
+   4,
+   0,
+   "MODEL"
+  ],
+  [
+   4,
+   5,
+   0,
+   7,
+   0,
+   "CLIP"
+  ],
+  [
+   5,
+   2,
+   0,
+   7,
+   1,
+   "IMAGE"
+  ],
+  [
+   6,
+   6,
+   0,
+   7,
+   2,
+   "VAE"
+  ],
+  [
+   7,
+   4,
+   0,
+   8,
+   0,
+   "MODEL"
+  ],
+  [
+   8,
+   7,
+   0,
+   8,
+   1,
+   "CONDITIONING"
+  ],
+  [
+   9,
+   7,
+   1,
+   8,
+   2,
+   "CONDITIONING"
+  ],
+  [
+   10,
+   7,
+   2,
+   8,
+   3,
+   "LATENT"
+  ],
+  [
+   11,
+   8,
+   0,
+   9,
+   0,
+   "LATENT"
+  ],
+  [
+   12,
+   6,
+   0,
+   9,
+   1,
+   "VAE"
+  ],
+  [
+   13,
+   9,
+   0,
+   10,
+   0,
+   "IMAGE"
+  ],
+  [
+   14,
+   1,
+   0,
+   10,
+   1,
+   "IMAGE"
+  ],
+  [
+   15,
+   2,
+   2,
+   10,
+   2,
+   "TPS_WARP_INFO"
+  ],
+  [
+   16,
+   1,
+   0,
+   11,
+   0,
+   "IMAGE"
+  ],
+  [
+   17,
+   10,
+   0,
+   11,
+   1,
+   "IMAGE"
+  ],
+  [
+   18,
+   2,
+   2,
+   11,
+   2,
+   "TPS_WARP_INFO"
+  ],
+  [
+   19,
+   11,
+   0,
+   12,
+   0,
+   "IMAGE"
+  ],
+  [
+   20,
+   1,
+   0,
+   13,
+   0,
+   "IMAGE"
+  ],
+  [
+   21,
+   11,
+   0,
+   13,
+   1,
+   "IMAGE"
+  ],
+  [
+   22,
+   2,
+   3,
+   14,
+   0,
+   "IMAGE"
+  ],
+  [
+   23,
+   9,
+   0,
+   15,
+   0,
+   "IMAGE"
+  ],
+  [
+   24,
+   10,
+   1,
+   16,
+   0,
+   "MASK"
+  ],
+  [
+   25,
+   11,
+   3,
+   17,
+   0,
+   "IMAGE"
+  ],
+  [
+   26,
+   10,
+   2,
+   18,
+   0,
+   "IMAGE"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 0.5,
+   "offset": [
+    40,
+    80
+   ]
+  }
+ },
+ "version": 0.4
+}

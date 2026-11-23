@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 node.zip
 .ruff_cache/
+.*.hushmark
+.*.swp
+.*.hushmd
