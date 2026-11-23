@@ -11,7 +11,7 @@ torch = pytest.importorskip("torch")
 cv2 = pytest.importorskip("cv2")
 
 from tps_cut_paste import color_match as cm  # noqa: E402
-from tps_cut_paste.cut_paste import cut, paste  # noqa: E402
+from tps_cut_paste.cut_paste import color_match_cut, cut, paste  # noqa: E402
 
 RNG = np.random.default_rng(7)
 
@@ -106,11 +106,13 @@ def test_paste_changes_nothing_outside_with_everything_on():
     mask = torch.from_numpy(disk(H, W, 190, 200, 60).astype(np.float32))[None]
     c, _, info, _ = cut(src, mask, 512, 1.8, 6.0, 0, 16, True, 0.1)
     edited = torch.from_numpy(graded(c[0].numpy()))[None]
-    out, _, pasted_cut, _, pm, change, view = paste(
-        src, edited, info, "mask", 8, 24, 32, "none", color="grade + edge", texture="match",
-        feather_detail="keep")
+    fixed, change, view = color_match_cut(src, edited, info, color="grade + edge",
+                                          texture="match")
+    assert fixed.shape == c.shape and change.shape == (1, c.shape[1], c.shape[2])
+    assert view.dim() == 4 and view.shape[-1] == 3
+    out, _, pasted_cut, _, pm = paste(src, fixed, info, "mask", 8, 24, 32, "none",
+                                      feather_detail="keep")
     assert torch.equal(out[0][pm[0] == 0], src[0][pm[0] == 0])
-    assert change.shape == (1, H, W) and view.dim() == 4 and view.shape[-1] == 3
     assert pasted_cut.shape == c.shape
     # inside, the darkening is undone
     inner = pm[0] > 0.99
@@ -119,13 +121,61 @@ def test_paste_changes_nothing_outside_with_everything_on():
     assert d_before < -0.01 and abs(d_after) < 0.006
 
 
-def test_off_measures_nothing():
+def test_off_passes_the_edit_through():
     H, W = 256, 256
     src = torch.from_numpy(scene(H, W))[None]
     mask = torch.from_numpy(disk(H, W, 128, 128, 40).astype(np.float32))[None]
     c, _, info, _ = cut(src, mask, 256, 1.8, 6.0, 0, 16, True, 0.1)
-    *_, change, view = paste(src, c, info, "mask", 8, 24, 32, "none")
-    assert change.abs().sum() == 0 and view.shape[0] == 1
+    fixed, change, view = color_match_cut(src, c, info, color="off", texture="off")
+    assert torch.allclose(fixed, c) and change.abs().sum() == 0 and view.shape[0] == 1
+
+
+def test_a_given_change_mask_is_kept_out_and_the_rest_still_found():
+    """A given mask replaces the geometry evidence but not the color peaks: a glow
+    the change cast past it is still found, and nothing else is."""
+    o = scene(seed=4)
+    mask = disk(320, 320, 160, 160, 70)
+    e = graded(o)
+    obj = disk(320, 320, 160, 160, 40)
+    e[obj] = [0.9, 0.7, 0.2]
+    glow = disk(320, 320, 160, 160, 110) & ~mask
+    lab = cm.to_oklab(e)
+    lab[glow, 0] += 0.12                               # light cast past the painted mask
+    e = cm.from_oklab(lab)
+    alpha = mask.astype(np.float32)
+    _, change, report = cm.match(o, e, mask, alpha, color="grade", texture="off", given=obj)
+    assert change[obj].mean() == 1.0
+    assert change[glow].mean() > 0.8
+    far = ~disk(320, 320, 160, 160, 130)
+    assert change[far].mean() < 0.01
+    assert not any("past the mask" in w_ for w_ in report["warnings"])
+
+
+def test_the_correction_carries_to_the_unaligned_edit():
+    """Measured on one frame, applied to another: the grade goes by each frame's
+    own lightness, so the same tones get the same correction."""
+    o = scene(seed=5)
+    mask = disk(320, 320, 160, 160, 80)
+    e = graded(o)
+    fixed, _, report = cm.match(o, e, mask, mask.astype(np.float32), color="grade",
+                                texture="off")
+    shifted = np.roll(e, 3, axis=1)
+    again = cm.apply_correction(shifted, report["correction"])
+    assert np.abs(again - np.roll(fixed, 3, axis=1))[:, 8:-8].max() < 1e-5
+
+
+def test_a_source_size_change_mask_lands_in_the_cut():
+    H, W = 384, 384
+    src = torch.from_numpy(scene(H, W, seed=6))[None]
+    mask = torch.from_numpy(disk(H, W, 190, 200, 60).astype(np.float32))[None]
+    c, _, info, _ = cut(src, mask, 512, 1.8, 6.0, 0, 16, True, 0.1)
+    given = torch.from_numpy(disk(H, W, 190, 200, 30).astype(np.float32))[None]
+    _, change, _ = color_match_cut(src, c, info, change_mask=given, texture="off")
+    ch, cw = c.shape[1:3]
+    centre = change[0, ch // 2 - 10:ch // 2 + 10, cw // 2 - 10:cw // 2 + 10]
+    assert centre.min() == 1 and change[0, :20].max() == 0
+    with pytest.raises(ValueError, match="size of the source"):
+        color_match_cut(src, c, info, change_mask=torch.ones(1, 100, 300))
 
 
 @pytest.mark.parametrize("sigma", [3.0, 12.8, 51.2, 204.8])

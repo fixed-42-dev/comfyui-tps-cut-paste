@@ -12,7 +12,7 @@ edit changed stands on it. The plateau is measured only on pixels the edit left
 alone, found from outside the painted mask inward, and undone; the object and
 what it did to its surroundings stay.
 
-1. trust   - colour and round-trip z-scores against local plateau and floor
+1. trust   - color and round-trip z-scores against local plateau and floor
              maps, with the painted mask as a prior: its inside never defines
              the plateau. Gives per-pixel trust and the change mask.
 2. grade   - an Oklab offset per tone of the edit, fitted on trusted pixels,
@@ -176,8 +176,14 @@ def _clean(m, min_share=0.0005, grow=4):
     return m
 
 
-def trust(original, processed, flows=None, prior=None, work=WORK):
-    """Per-pixel trust (0-1), z maps and the change mask, at working size."""
+def trust(original, processed, flows=None, prior=None, given=None, work=WORK):
+    """Per-pixel trust (0-1), z maps and the change mask, at working size.
+
+    given: a change mask from outside (painted, or from a segmentation model),
+    (h, w) at the frame's size. It takes the place of the geometry evidence,
+    which fails wherever the edit redrew the texture: the change mask is then
+    the given one plus the color peaks, so light or shadow the change cast
+    past it still counts as changed."""
     H, W = original.shape[:2]
     k = min(1.0, work / max(H, W))
     ww, wh = max(8, int(round(W * k / 8)) * 8), max(8, int(round(H * k / 8)) * 8)
@@ -188,15 +194,20 @@ def trust(original, processed, flows=None, prior=None, work=WORK):
     if prior is not None and (prior > 0).any() and not (prior > 0).all():
         w0 = 1.0 - (cv2.resize((prior > 0).astype(np.uint8), (ww, wh), interpolation=cv2.INTER_NEAREST) > 0)
     z_col, plateau = robust_z(to_oklab(p) - to_oklab(o), sigma, floor_min=0.004, w0=w0)
-    z_rt = (robust_z(_roundtrip_error(flows, o, p), sigma, floor_min=0.05, one_sided=True, w0=w0)[0]
-            if flows is not None else np.zeros_like(z_col))
+    if given is not None:
+        g_w = cv2.resize((given > 0.5).astype(np.uint8), (ww, wh), interpolation=cv2.INTER_NEAREST) > 0
+        z_rt = np.zeros_like(z_col)
+        change = _clean((z_col > 4) | g_w)
+    else:
+        z_rt = (robust_z(_roundtrip_error(flows, o, p), sigma, floor_min=0.05, one_sided=True, w0=w0)[0]
+                if flows is not None else np.zeros_like(z_col))
+        change = _clean((z_col > 4) | (z_rt > 4))
     g = _flatness(o)
     g50, g90 = np.percentile(g, 50), np.percentile(g, 90)
     w_flat = np.clip((g90 - g) / (g90 - g50 + 1e-6), 0.0, 1.0)
-    change = _clean((z_col > 4) | (z_rt > 4))
     clean = _soft(z_col) * _soft(z_rt) * (1 - change)
     return dict(size=(ww, wh), w=(clean * w_flat).astype(np.float32), w_tex=clean.astype(np.float32),
-                change=change, o=o, p=p, flows=flows is not None)
+                change=change, o=o, p=p, flows=flows is not None, given=given is not None)
 
 
 # ------------------------------------------------ stage 2: grade
@@ -370,15 +381,18 @@ def band_completeness(mask, band):
 
 
 def match(original, processed, hard_mask, alpha, flows=None, color="grade + edge",
-          grade_strength=1.0, edge_profile="smooth", edge_width=128, texture="match"):
+          grade_strength=1.0, edge_profile="smooth", edge_width=128, texture="match",
+          given=None):
     """The processed cut with its color and texture matched to the original.
 
     original, processed: (h, w, 3) float32 sRGB, processed already aligned.
     hard_mask: the painted mask before grow and feather (the prior); alpha: the
-    blend weight it will be pasted with. Returns the corrected cut, the change
-    mask (h, w) and a report for the measurement view."""
+    blend weight it will be pasted with; given: a change mask from outside (see
+    `trust`). Returns the corrected cut, the change mask (h, w) and a report
+    for the measurement view. report["correction"] applies the same correction
+    to another frame of this size (see `apply_correction`)."""
     h, w = original.shape[:2]
-    tr = trust(original, processed, flows, prior=hard_mask)
+    tr = trust(original, processed, flows, prior=hard_mask, given=given)
     ww, wh = tr["size"]
     s = ww / w
     change = cv2.resize(tr["change"], (w, h), interpolation=cv2.INTER_NEAREST).astype(np.float32)
@@ -391,35 +405,57 @@ def match(original, processed, hard_mask, alpha, flows=None, color="grade + edge
     outside = float((ch_w & (hard_w == 0)).sum() / max(ch_w.sum(), 1))
     warnings = []
     conf = min(1.0, comp / 0.6) * min(1.0, n_band / max(0.01 * ww * wh, 1))
-    if outside > 0.05:
+    # A change found past the mask may be a detection gone wrong, so it lowers
+    # confidence; a given one was drawn on purpose and is only kept out.
+    if outside > 0.05 and not tr["given"]:
         warnings.append(f"the change reaches past the mask ({outside * 100:.0f}% of it)")
         conf *= 0.5
     if comp < 0.3:
         warnings.append("little band around the mask: correction reduced")
-    if not tr["flows"]:
+    if not tr["flows"] and not tr["given"]:
         warnings.append("no optical flow: change found by color only")
 
-    out, curve, field = processed, None, None
+    corr: dict = dict(grade=None, field=None, texture=None)
+    out = processed
     info: dict = {"n": 0}
     gains: list | None = None
     if color in ("grade + edge", "grade"):
         curve, info = fit_grade(tr["o"], tr["p"], tr["w"])
         if curve is not None and grade_strength > 0:
-            lab = to_oklab(out)
-            out = from_oklab(lab + grade_strength * conf * curve(lab[..., 0]))
+            corr["grade"] = (curve, grade_strength * conf)
         elif curve is None:
             warnings.append("too few unchanged pixels to measure the grade")
+        out = apply_correction(out, corr)
     if color in ("grade + edge", "edge"):
-        field = edge_field(original, out, alpha, tr, edge_profile, edge_width)
-        out = from_oklab(to_oklab(out) + field)
+        corr["field"] = edge_field(original, out, alpha, tr, edge_profile, edge_width)
+        out = from_oklab(to_oklab(out) + corr["field"])
     if texture == "match":
         gm, gains = texture_gains(original, out, cv2.resize(tr["w_tex"], (w, h), interpolation=cv2.INTER_LINEAR))
         if gm:
+            corr["texture"] = gm
             out = apply_texture(out, gm)
     report: dict = dict(tr=tr, hard=hard_w, band=band, n_band=n_band, completeness=comp, outside=outside,
-                  confidence=conf, warnings=warnings, info=info, field=field, gains=gains,
-                  color=color, texture=texture, grade_strength=grade_strength)
+                  confidence=conf, warnings=warnings, info=info, field=corr["field"], gains=gains,
+                  color=color, texture=texture, grade_strength=grade_strength, correction=corr)
     return out.astype(np.float32), change, report
+
+
+def apply_correction(img, corr):
+    """The correction `match` measured, applied to another (h, w, 3) frame of
+    the same size: the grade by the frame's own lightness, then the edge field
+    and the texture gains by position. Those two are smooth over tens of px,
+    so a frame a few px off the measured one (the edit before alignment) takes
+    them as well as the measured one."""
+    out = img
+    if corr["grade"] is not None:
+        curve, k = corr["grade"]
+        lab = to_oklab(out)
+        out = from_oklab(lab + k * curve(lab[..., 0]))
+    if corr["field"] is not None:
+        out = from_oklab(to_oklab(out) + corr["field"])
+    if corr["texture"] is not None:
+        out = apply_texture(out, corr["texture"])
+    return out.astype(np.float32)
 
 
 # ------------------------------------------------ the measurement view
@@ -520,8 +556,10 @@ def render_view(original, processed, corrected, alpha, report, open_sides=(), he
          f"open sides cyan: {', '.join(open_sides) or 'none'}", grey),
         (f"band 0-{BAND} cut px: {report['n_band']} trusted px (green), "
          f"{report['completeness'] * 100:.0f}% of a full ring", ok),
-        (f"changed (red): {change.mean() * 100:.1f}% of the cut; outside the mask (orange): "
-         f"{report['outside'] * 100:.0f}% of it", orange if report["outside"] > 0.05 else (230, 60, 50)),
+        (f"changed (red): {change.mean() * 100:.1f}% of the cut"
+         + (", from the given mask and color" if tr["given"] else "")
+         + f"; outside the mask (orange): {report['outside'] * 100:.0f}% of it",
+         orange if report["outside"] > 0.05 and not tr["given"] else (230, 60, 50)),
         (f"grade at mid tones: L {mid}; plateau left in the band (p5-p95): {left:.3f}", grey),
         (f"plateau: red = edit darker, blue = brighter (Oklab L, +-0.06); edge field rms {edge_rms:.3f}", grey),
         ("texture gain per band: " + (" ".join(f"{g:.2f}" for g in report["gains"]) if report["gains"] else "-"), grey),

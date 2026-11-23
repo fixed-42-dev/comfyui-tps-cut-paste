@@ -13,8 +13,8 @@ size, and a Gaussian for masks, which must not ring.
 Convention: continuous pixel coords, pixel i has center i + 0.5.
     source_point = A @ cut_point + t
 
-`cut` and `paste` are the TPS Cut and TPS Paste nodes without ComfyUI;
-`warp_info` is the dict `cut` returns for `paste`.
+`cut`, `color_match_cut` and `paste` are the TPS Cut, TPS Color Match and TPS
+Paste nodes without ComfyUI; `warp_info` is the dict `cut` returns for the others.
 """
 import logging
 import math
@@ -25,6 +25,10 @@ import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
 
 from . import color_match, seam_align
+
+# TPS Paste's default grow and feather (cut px): TPS Color Match measures the
+# edge correction at the edge they make.
+PASTE_GROW, PASTE_FEATHER = 8, 24
 
 # width, height. 21:9 is landscape only; tall regions stop at 9:16.
 RATIOS = ((1, 1), (3, 2), (2, 3), (4, 3), (3, 4), (16, 9), (9, 16), (21, 9))
@@ -552,20 +556,55 @@ def _cut_preview(img, m, A, ts, cw, ch, s, steps, context_expand, nearest_ratio,
 
 # ---------------------------------------------------------------- paste
 
+def _cut_mask(m, ch, cw, dev):
+    """A cut-space mask ([N,H,W] or [H,W]) as [N,1,ch,cw]."""
+    m = m.float().to(dev)
+    if m.dim() == 2:
+        m = m[None]
+    m = m[:, None]
+    if tuple(m.shape[-2:]) != (ch, cw):
+        m = F.interpolate(m, size=(ch, cw), mode="bilinear", align_corners=False)
+    return m
+
+
+def _blend_alpha(info, blend_mask, blend, grow, feather, edge_feather, open_sides, dev):
+    """The blend weight in cut space, [B,1,ch,cw], and the (start, grown) masks
+    for the paste area (None for full_cut)."""
+    cw, ch = info["cut_w"], info["cut_h"]
+    stages = None
+    if blend == "full_cut":
+        bm = torch.ones(1, 1, ch, cw, device=dev)
+    else:
+        bm = _cut_mask(blend_mask if blend_mask is not None else info["cut_mask"], ch, cw, dev)
+        grown = _grow(bm, grow)
+        stages = (bm, grown)
+        bm = gaussian_blur(grown, feather / 3.0)
+    bm = torch.cat([bm[min(b, bm.shape[0] - 1)][None]
+                    * _edge_ramp(ch, cw, edge_feather, dev, torch.float32, sides)
+                    for b, sides in enumerate(open_sides)]).clamp(0, 1)
+    return bm, stages
+
+
+def _processed_at_cut(processed, n_ch, ch, cw, dev):
+    proc = processed[..., :n_ch].float().to(dev).permute(0, 3, 1, 2)
+    if tuple(proc.shape[-2:]) != (ch, cw):
+        proc = F.interpolate(proc, size=(ch, cw), mode="bicubic",
+                             antialias=True, align_corners=False).clamp(0, 1)
+    return proc
+
+
 def paste(image, processed, warp_info, blend="mask", grow=8, feather=24, edge_feather=32,
           align="seam", align_strength=1.0, seam_band=48, blend_mask=None, flows=None,
-          color="off", grade_strength=1.0, edge_profile="smooth", edge_width=128,
-          texture="off", feather_detail="plain"):
+          feather_detail="plain"):
     """The source with the processed cut pasted back: the image, the blend mask in cut
-    space, the cut as pasted (after align, color and texture), the paste area preview,
-    the paste mask, the change mask and the measurement view.
+    space, the cut as pasted (after align), the paste area preview and the paste mask.
 
     `flows(a, b)` gives forward and backward optical flow between two float [0, 1]
-    frames (see `seam_align`); it is needed when `align` is not "none", and it makes
-    the color match find changes by geometry too.
+    frames (see `seam_align`); it is needed when `align` is not "none".
 
-    color ("off", "grade", "edge", "grade + edge"), texture ("off", "match") and
-    feather_detail ("plain", "keep") are `color_match`; off here, on in the node."""
+    feather_detail "keep" keeps the detail energy of both sides in the feather
+    (`color_match.energy_blend`); "plain" here, "keep" in the node. Color and
+    texture are matched before, by `color_match` (the TPS Color Match node)."""
     info = warp_info
     img = image.float()
     B, H, W, C = img.shape
@@ -579,65 +618,24 @@ def paste(image, processed, warp_info, blend="mask", grow=8, feather=24, edge_fe
     # Channel counts can differ: Qwen Image 2.1's VAE decodes RGBA even from RGB.
     # Only channels both sides have are blended; the source keeps the rest.
     n_ch = min(C, processed.shape[-1])
-    proc = processed[..., :n_ch].float().to(dev).permute(0, 3, 1, 2)
-    if tuple(proc.shape[-2:]) != (ch, cw):
-        proc = F.interpolate(proc, size=(ch, cw), mode="bicubic",
-                             antialias=True, align_corners=False).clamp(0, 1)
-
-    stages = None  # (start, grown) cut masks for the paste area
-    painted = (blend_mask if blend_mask is not None else info["cut_mask"]).float().to(dev)
-    if painted.dim() == 2:
-        painted = painted[None]
-    painted = painted[:, None]
-    if tuple(painted.shape[-2:]) != (ch, cw):
-        painted = F.interpolate(painted, size=(ch, cw), mode="bilinear", align_corners=False)
-    matching = color != "off" or texture != "off"
-    if blend == "full_cut":
-        bm = torch.ones(1, 1, ch, cw, device=dev)
-    else:
-        bm = (blend_mask if blend_mask is not None else info["cut_mask"]).float().to(dev)
-        if bm.dim() == 2:
-            bm = bm[None]
-        bm = bm[:, None]
-        if tuple(bm.shape[-2:]) != (ch, cw):
-            bm = F.interpolate(bm, size=(ch, cw), mode="bilinear", align_corners=False)
-        grown = _grow(bm, grow)
-        stages = (bm, grown)
-        bm = gaussian_blur(grown, feather / 3.0)
+    proc = _processed_at_cut(processed, n_ch, ch, cw, dev)
     open_sides = [_sides_on_image_border(A, ts[b], cw, ch, W, H) for b in range(B)]
-    bm = torch.cat([bm[min(b, bm.shape[0] - 1)][None]
-                    * _edge_ramp(ch, cw, edge_feather, dev, torch.float32, open_sides[b])
-                    for b in range(B)]).clamp(0, 1)
+    bm, stages = _blend_alpha(info, blend_mask, blend, grow, feather, edge_feather, open_sides, dev)
 
     A_inv = torch.linalg.inv(A)
     out = img.clone()
     paste_mask = torch.zeros(B, H, W, device=dev)
-    change_mask = torch.zeros(B, H, W, device=dev)
-    aligned, did_align, rects, views = [], [], [], []
-    to_np = lambda x: x[0, :3].permute(1, 2, 0).float().cpu().numpy().astype(np.float32)
+    aligned, did_align, rects = [], [], []
     for b in range(B):
         t = ts[b]
         p_src = proc[min(b, proc.shape[0] - 1)][None]
         aligned_from = p_src
         m_src = bm[b:b + 1]
-        original = None
-        if (align != "none" and align_strength > 0) or (matching and n_ch >= 3):
+        if align != "none" and align_strength > 0:
             original = warp_sample(img[b:b + 1].permute(0, 3, 1, 2), A, t, ch, cw,
                                    "bicubic", "border", s).clamp(0, 1)
-        if align != "none" and align_strength > 0:
             p_src = _align_cut(original, p_src, m_src, align, align_strength, seam_band, flows)
         did_align.append(p_src is not aligned_from)  # _align_cut returns its input on failure
-        change_cut = None
-        if matching and n_ch >= 3:
-            o_np, p_np = to_np(original), to_np(p_src)
-            fixed, change_cut, report = color_match.match(
-                o_np, p_np, painted[min(b, painted.shape[0] - 1), 0].cpu().numpy() > 0.5,
-                m_src[0, 0].cpu().numpy(), flows, color, grade_strength, edge_profile,
-                edge_width, texture)
-            views.append(color_match.render_view(o_np, p_np, fixed, m_src[0, 0].cpu().numpy(),
-                                                 report, sorted(open_sides[b])))
-            fixed_t = torch.from_numpy(fixed).to(dev).permute(2, 0, 1)[None]
-            p_src = torch.cat([fixed_t, p_src[:, 3:]], 1) if p_src.shape[1] > 3 else fixed_t
         aligned.append(p_src)
         pc = _corners(cw, ch, dev, torch.float32) @ A.T + t
         rx0 = max(0, int(math.floor(pc[:, 0].min().item())) - 1)
@@ -669,20 +667,92 @@ def paste(image, processed, warp_info, blend="mask", grow=8, feather=24, edge_fe
             mixed = torch.cat([torch.from_numpy(kept).to(dev), mixed[..., 3:]], -1)
         out[b, ry0:ry1, rx0:rx1, :n_ch] = mixed
         paste_mask[b, ry0:ry1, rx0:rx1] = a[..., 0]
-        if change_cut is not None:
-            cm = torch.from_numpy(change_cut).to(dev)[None, None]
-            change_mask[b, ry0:ry1, rx0:rx1] = warp_sample(
-                cm, A_inv, t_loc, rh, rw, "bilinear", "zeros", 1 / s, "gauss")[0, 0].clamp(0, 1)
 
     aligned_cut = torch.cat(aligned).permute(0, 2, 3, 1)
-    notes = [f"color {color}, texture {texture}, feather detail {feather_detail}"
-             + (": see measure_view" if matching else "")]
+    notes = [f"feather detail {feather_detail}"]
     area = _paste_area(out, A, ts, cw, ch, s, rects, bm, stages, open_sides, did_align,
                        blend, blend_mask is not None, grow, feather, edge_feather,
                        align, align_strength, seam_band, notes)
-    view = _stack_views(views, dev) if views else _off_view(dev, B)
     return (out.to(image.dtype), bm[:, 0], aligned_cut.to(image.dtype),
-            area.to(image.dtype), paste_mask, change_mask, view.to(image.dtype))
+            area.to(image.dtype), paste_mask)
+
+
+def _given_at_cut(change_mask, info, b, H, W, dev):
+    """A given change mask for batch item b as a (ch, cw) numpy array. A mask the
+    size of the source (painted on it, or on the pasted result) is taken through
+    the cut's warp; one the size of the cut is used as it is."""
+    cw, ch, s = info["cut_w"], info["cut_h"], info["scale"]
+    m = change_mask.float().to(dev)
+    if m.dim() == 2:
+        m = m[None]
+    m = m[min(b, m.shape[0] - 1)]
+    if tuple(m.shape) == (H, W) and (H, W) != (ch, cw):
+        m = warp_sample(m[None, None], info["A"].to(dev), info["t"][b].to(dev), ch, cw,
+                        "bilinear", "zeros", s, "gauss")[0, 0]
+    elif tuple(m.shape) != (ch, cw):
+        if abs(m.shape[1] / m.shape[0] - cw / ch) > 0.01 * cw / ch:
+            raise ValueError(f"change_mask is {m.shape[1]}x{m.shape[0]}: it must be the size "
+                             f"of the source ({W}x{H}) or of the cut ({cw}x{ch})")
+        m = F.interpolate(m[None, None], size=(ch, cw), mode="bilinear", align_corners=False)[0, 0]
+    return m.clamp(0, 1).cpu().numpy()
+
+
+def color_match_cut(image, processed, warp_info, change_mask=None, blend_mask=None,
+                    flows=None, color="grade + edge", grade_strength=1.0,
+                    edge_profile="smooth", edge_width=128, texture="match"):
+    """The processed cut with its color and texture matched to the source's, before
+    it is pasted: the corrected cut (at cut size, in the processed cut's own
+    layout), the change mask in cut space and the measurement view.
+
+    It is measured with the processed cut lined up with the original (a full
+    align, by `flows`), on pixels the edit left alone (see `color_match`), and
+    applied to the processed cut as it came, so TPS Paste can still align it in
+    any mode. change_mask, when given, says what the edit changed (see
+    `color_match.trust`). The edge correction is measured at the edge of the
+    painted mask (blend_mask, or the cut mask) grown as TPS Paste grows it by
+    default."""
+    info = warp_info
+    img = image.float()
+    B, H, W, C = img.shape
+    dev = img.device
+    cw, ch, s = info["cut_w"], info["cut_h"], info["scale"]
+    A = info["A"].to(dev)
+    ts = info["t"].to(dev)
+    if ts.shape[0] != B:
+        raise ValueError(f"warp_info batch {ts.shape[0]} != image batch {B}")
+    n_ch = processed.shape[-1]
+    proc = _processed_at_cut(processed, n_ch, ch, cw, dev)
+    if n_ch < 3 or C < 3 or (color == "off" and texture == "off"):
+        return (proc.permute(0, 2, 3, 1).to(processed.dtype), torch.zeros(proc.shape[0], ch, cw),
+                _off_view(dev, B).to(processed.dtype))
+    open_sides = [_sides_on_image_border(A, ts[b], cw, ch, W, H) for b in range(B)]
+    painted = _cut_mask(blend_mask if blend_mask is not None else info["cut_mask"], ch, cw, dev)
+    bm, _ = _blend_alpha(info, blend_mask, "mask", PASTE_GROW, PASTE_FEATHER, 0, open_sides, dev)
+    to_np = lambda x: x[0, :3].permute(1, 2, 0).float().cpu().numpy().astype(np.float32)
+
+    outs, changes, views = [], [], []
+    for b in range(max(B, proc.shape[0])):
+        bi = min(b, B - 1)
+        p_src = proc[min(b, proc.shape[0] - 1)][None]
+        m_src = bm[bi:bi + 1]
+        original = warp_sample(img[bi:bi + 1].permute(0, 3, 1, 2), A, ts[bi], ch, cw,
+                               "bicubic", "border", s).clamp(0, 1)
+        lined = _align_cut(original, p_src, m_src, "full", 1.0, 0, flows) if flows else p_src
+        given = None if change_mask is None else _given_at_cut(change_mask, info, bi, H, W, dev)
+        o_np, l_np, p_np = to_np(original), to_np(lined), to_np(p_src)
+        alpha = m_src[0, 0].cpu().numpy()
+        fixed_lined, change, report = color_match.match(
+            o_np, l_np, painted[min(bi, painted.shape[0] - 1), 0].cpu().numpy() > 0.5, alpha,
+            flows, color, grade_strength, edge_profile, edge_width, texture, given=given)
+        views.append(color_match.render_view(o_np, l_np, fixed_lined, alpha, report,
+                                             sorted(open_sides[bi])))
+        fixed = torch.from_numpy(color_match.apply_correction(p_np, report["correction"]))
+        fixed = fixed.to(dev).permute(2, 0, 1)[None]
+        outs.append(torch.cat([fixed, p_src[:, 3:]], 1) if n_ch > 3 else fixed)
+        changes.append(torch.from_numpy(change))
+    out = torch.cat(outs).permute(0, 2, 3, 1)
+    return (out.to(processed.dtype), torch.stack(changes).to(dev),
+            _stack_views(views, dev).to(processed.dtype))
 
 
 def _stack_views(views, dev):
