@@ -67,10 +67,34 @@ def from_oklab(lab):
 
 # ------------------------------------------------ maps
 
+def blur(x, sigma):
+    """Gaussian blur of a 2D map. A wide one runs on a copy shrunk until sigma is
+    about 4 px and is enlarged back: the fills below reach 200 px and more, and a
+    full-size kernel that wide took over 90 % of the paste's time. The result is
+    smooth on that scale, so the shrinking loses nothing visible."""
+    x = np.ascontiguousarray(x, np.float32)
+    f = int(sigma // 4)
+    h, w = x.shape[:2]
+    if f < 2 or min(h, w) < 4 * f:
+        return cv2.GaussianBlur(x, (0, 0), sigma)
+    sw, sh = -(-w // f), -(-h // f)
+    small = cv2.resize(x, (sw, sh), interpolation=cv2.INTER_AREA)
+    # The area average (a box) and the linear enlargement (a tent) blur too:
+    # their variances, k^2/12 and k^2/6 for a k px step, come off the Gaussian's.
+    kx, ky = w / sw, h / sh
+    sx = np.sqrt(max(sigma * sigma - kx * kx / 4.0, 0.25)) / kx
+    sy = np.sqrt(max(sigma * sigma - ky * ky / 4.0, 0.25)) / ky
+    # Mirrored at the border with the edge pixel repeated, so the mirror scales
+    # with the copy; the default leaves the edge pixel out, which on the copy
+    # leaves out k px and shifted a blur wider than the frame.
+    small = cv2.GaussianBlur(small, (0, 0), sx, sigmaY=sy, borderType=cv2.BORDER_REFLECT)
+    return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
 def nconv(value, weight, sigma):
     """Normalized convolution: a weighted local mean that fills gaps from around them."""
-    num = cv2.GaussianBlur((value * weight).astype(np.float32), (0, 0), sigma)
-    den = cv2.GaussianBlur(weight.astype(np.float32), (0, 0), sigma)
+    num = blur(value * weight, sigma)
+    den = blur(weight, sigma)
     return num / np.maximum(den, 1e-6), den
 
 

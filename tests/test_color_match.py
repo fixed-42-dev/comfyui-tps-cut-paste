@@ -126,3 +126,14 @@ def test_off_measures_nothing():
     c, _, info, _ = cut(src, mask, 256, 1.8, 6.0, 0, 16, True, 0.1)
     *_, change, view = paste(src, c, info, "mask", 8, 24, 32, "none")
     assert change.abs().sum() == 0 and view.shape[0] == 1
+
+
+@pytest.mark.parametrize("sigma", [3.0, 12.8, 51.2, 204.8])
+def test_wide_blur_matches_a_full_gaussian(sigma):
+    """The shrunk blur behind the fills stays within a few thousandths of a
+    full-size Gaussian, on a map with hard edges and gaps like a trust weight."""
+    h, w = 600, 451
+    rng = np.random.default_rng(3)
+    m = (disk(h, w, 200, 300, 120) | (rng.random((h, w)) > 0.97)).astype(np.float32)
+    full = cv2.GaussianBlur(m, (0, 0), sigma)
+    assert np.abs(cm.blur(m, sigma) - full).max() < 0.005

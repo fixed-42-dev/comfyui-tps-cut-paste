@@ -66,13 +66,16 @@ def gaussian_blur(x, sigma):
 
 
 def _grow(m, px):
-    """m: [N,1,H,W]. Positive px dilates, negative erodes."""
+    """m: [N,1,H,W]. Positive px dilates, negative erodes, by a square. A square's
+    max is a row max then a column max, which keeps a wide grow cheap (the seam
+    band's 97 x 97 in one pass took seconds)."""
     if px == 0:
         return m
-    k = 2 * abs(px) + 1
-    if px > 0:
-        return F.max_pool2d(m, k, stride=1, padding=abs(px))
-    return -F.max_pool2d(-m, k, stride=1, padding=abs(px))
+    r = abs(px)
+    k = 2 * r + 1
+    sign = 1 if px > 0 else -1
+    x = F.max_pool2d(sign * m, (1, k), stride=1, padding=(0, r))
+    return sign * F.max_pool2d(x, (k, 1), stride=1, padding=(r, 0))
 
 
 def _pixel_grid(h, w, device, dtype):
